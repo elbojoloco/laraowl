@@ -21,6 +21,7 @@ return new class extends Migration
             $table->integer('uptime_check_interval')->default(60); // in seconds
             $table->timestamp('last_uptime_check_at')->nullable();
             $table->string('last_uptime_status')->nullable(); // 'up', 'down'
+            $table->integer('retention_days')->default(7);
             $table->json('settings')->nullable();
             $table->timestamps();
         });
