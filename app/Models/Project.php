@@ -46,6 +46,16 @@ class Project extends Model implements HasMedia
         'settings',
     ];
 
+    /**
+     * The attributes that should be hidden for serialization.
+     *
+     * @var array<int, string>
+     */
+    protected $hidden = [
+        'api_token',
+        'settings',
+    ];
+
     protected $appends = ['logo_url'];
 
     public function getLogoUrlAttribute()

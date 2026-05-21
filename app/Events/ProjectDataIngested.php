@@ -43,4 +43,23 @@ class ProjectDataIngested implements ShouldBroadcastNow
     {
         return 'ProjectDataIngested';
     }
+
+    /**
+     * Get the data to broadcast.
+     *
+     * @return array<string, mixed>
+     */
+    public function broadcastWith(): array
+    {
+        return [
+            'project' => [
+                'id' => $this->project->id,
+                'name' => $this->project->name,
+                'slug' => $this->project->slug,
+                'last_uptime_check_at' => $this->project->last_uptime_check_at?->toIso8601String(),
+                'last_uptime_status' => $this->project->last_uptime_status,
+                'updated_at' => $this->project->updated_at?->toIso8601String(),
+            ],
+        ];
+    }
 }
