@@ -43,18 +43,22 @@ class RecordService
         $allowedSorts = ['method', 'path', 'total', 'ok_count', 'client_error_count', 'server_error_count', 'avg_duration', 'p95_duration'];
         $sort = in_array($sort, $allowedSorts) ? $sort : 'total';
         $direction = $direction === 'asc' ? 'asc' : 'desc';
+        $statusCode = $this->jsonNumeric('status_code');
+        $duration = $this->jsonNumeric('duration');
+        $method = "COALESCE({$this->jsonText('method')}, 'GET')";
+        $path = "COALESCE({$this->jsonText('route_path')}, '/')";
 
         $overview = $project->records()
             ->ofType('request')
             ->forPeriod($period, $from, $to)
             ->select([
                 DB::raw('COUNT(*) as total'),
-                DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status_code')) BETWEEN 100 AND 399 THEN 1 ELSE 0 END) as ok"),
-                DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status_code')) BETWEEN 400 AND 499 THEN 1 ELSE 0 END) as client_error"),
-                DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status_code')) >= 500 THEN 1 ELSE 0 END) as server_error"),
-                DB::raw("AVG(JSON_EXTRACT(payload, '$.duration')) as avg_duration"),
-                DB::raw("MAX(JSON_EXTRACT(payload, '$.duration')) as max_duration"),
-                DB::raw("MIN(JSON_EXTRACT(payload, '$.duration')) as min_duration"),
+                DB::raw("SUM(CASE WHEN {$statusCode} BETWEEN 100 AND 399 THEN 1 ELSE 0 END) as ok"),
+                DB::raw("SUM(CASE WHEN {$statusCode} BETWEEN 400 AND 499 THEN 1 ELSE 0 END) as client_error"),
+                DB::raw("SUM(CASE WHEN {$statusCode} >= 500 THEN 1 ELSE 0 END) as server_error"),
+                DB::raw("AVG({$duration}) as avg_duration"),
+                DB::raw("MAX({$duration}) as max_duration"),
+                DB::raw("MIN({$duration}) as min_duration"),
             ])->first();
 
         return [
@@ -62,15 +66,15 @@ class RecordService
                 ->ofType('request')
                 ->forPeriod($period, $from, $to)
                 ->select([
-                    DB::raw("JSON_UNQUOTE(COALESCE(JSON_EXTRACT(payload, '$.method'), 'GET')) as method"),
-                    DB::raw("JSON_UNQUOTE(COALESCE(JSON_EXTRACT(payload, '$.route_path'), '/')) as path"),
+                    DB::raw("{$method} as method"),
+                    DB::raw("{$path} as path"),
                     'fingerprint as hash',
                     DB::raw('COUNT(*) as total'),
-                    DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status_code')) BETWEEN 100 AND 399 THEN 1 ELSE 0 END) as ok_count"),
-                    DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status_code')) BETWEEN 400 AND 499 THEN 1 ELSE 0 END) as client_error_count"),
-                    DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status_code')) >= 500 THEN 1 ELSE 0 END) as server_error_count"),
-                    DB::raw("AVG(JSON_EXTRACT(payload, '$.duration')) as avg_duration"),
-                    DB::raw("MAX(JSON_EXTRACT(payload, '$.duration')) as p95_duration"),
+                    DB::raw("SUM(CASE WHEN {$statusCode} BETWEEN 100 AND 399 THEN 1 ELSE 0 END) as ok_count"),
+                    DB::raw("SUM(CASE WHEN {$statusCode} BETWEEN 400 AND 499 THEN 1 ELSE 0 END) as client_error_count"),
+                    DB::raw("SUM(CASE WHEN {$statusCode} >= 500 THEN 1 ELSE 0 END) as server_error_count"),
+                    DB::raw("AVG({$duration}) as avg_duration"),
+                    DB::raw("MAX({$duration}) as p95_duration"),
                 ])
                 ->groupBy('method', 'path', 'fingerprint')
                 ->orderBy($sort, $direction)
@@ -95,32 +99,37 @@ class RecordService
     public function getDashboardStats(Project $project, ?string $period = null, ?string $from = null, ?string $to = null): array
     {
         $records = $project->records()->forPeriod($period, $from, $to);
+        $statusCode = $this->jsonNumeric('status_code');
+        $duration = $this->jsonNumeric('duration');
+        $status = $this->jsonText('status');
+        $user = $this->jsonValue('user');
+        $userIdentifier = "COALESCE({$this->jsonText('user.name')}, {$this->jsonText('user_name')}, {$this->jsonText('user')}, 'Anonymous')";
 
         $requestStats = (clone $records)->ofType('request')
             ->select([
                 DB::raw('COUNT(*) as total'),
-                DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status_code')) BETWEEN 100 AND 399 THEN 1 ELSE 0 END) as ok"),
-                DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status_code')) BETWEEN 400 AND 499 THEN 1 ELSE 0 END) as client_error"),
-                DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status_code')) >= 500 THEN 1 ELSE 0 END) as server_error"),
-                DB::raw("AVG(JSON_EXTRACT(payload, '$.duration')) as avg_duration"),
-                DB::raw("MAX(JSON_EXTRACT(payload, '$.duration')) as max_duration"),
-                DB::raw("MIN(JSON_EXTRACT(payload, '$.duration')) as min_duration"),
+                DB::raw("SUM(CASE WHEN {$statusCode} BETWEEN 100 AND 399 THEN 1 ELSE 0 END) as ok"),
+                DB::raw("SUM(CASE WHEN {$statusCode} BETWEEN 400 AND 499 THEN 1 ELSE 0 END) as client_error"),
+                DB::raw("SUM(CASE WHEN {$statusCode} >= 500 THEN 1 ELSE 0 END) as server_error"),
+                DB::raw("AVG({$duration}) as avg_duration"),
+                DB::raw("MAX({$duration}) as max_duration"),
+                DB::raw("MIN({$duration}) as min_duration"),
             ])->first();
 
         $jobStats = (clone $records)->whereIn('type', ['job-attempt', 'queued-job'])
             ->select([
                 DB::raw('COUNT(*) as total'),
-                DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status')) = 'processed' THEN 1 ELSE 0 END) as processed"),
-                DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status')) = 'failed' THEN 1 ELSE 0 END) as failed"),
-                DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status')) = 'released' THEN 1 ELSE 0 END) as released"),
-                DB::raw("AVG(JSON_EXTRACT(payload, '$.duration')) as avg_duration"),
-                DB::raw("MAX(JSON_EXTRACT(payload, '$.duration')) as p95_duration"),
+                DB::raw("SUM(CASE WHEN {$status} = 'processed' THEN 1 ELSE 0 END) as processed"),
+                DB::raw("SUM(CASE WHEN {$status} = 'failed' THEN 1 ELSE 0 END) as failed"),
+                DB::raw("SUM(CASE WHEN {$status} = 'released' THEN 1 ELSE 0 END) as released"),
+                DB::raw("AVG({$duration}) as avg_duration"),
+                DB::raw("MAX({$duration}) as p95_duration"),
             ])->first();
 
         $impactedUsers = (clone $records)->ofType('exception')
-            ->whereRaw("JSON_EXTRACT(payload, '$.user') IS NOT NULL")
+            ->whereRaw("{$user} IS NOT NULL")
             ->select([
-                DB::raw("COALESCE(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.user.name')), JSON_UNQUOTE(JSON_EXTRACT(payload, '$.user_name')), JSON_UNQUOTE(JSON_EXTRACT(payload, '$.user')), 'Anonymous') as user_identifier"),
+                DB::raw("{$userIdentifier} as user_identifier"),
                 DB::raw('COUNT(*) as error_count'),
                 DB::raw('MAX(created_at) as last_seen'),
             ])
@@ -130,9 +139,9 @@ class RecordService
             ->get();
 
         $activeUsers = (clone $records)->ofType('request')
-            ->whereRaw("JSON_EXTRACT(payload, '$.user') IS NOT NULL")
+            ->whereRaw("{$user} IS NOT NULL")
             ->select([
-                DB::raw("COALESCE(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.user.name')), JSON_UNQUOTE(JSON_EXTRACT(payload, '$.user_name')), JSON_UNQUOTE(JSON_EXTRACT(payload, '$.user')), 'Anonymous') as user_identifier"),
+                DB::raw("{$userIdentifier} as user_identifier"),
                 DB::raw('COUNT(*) as request_count'),
             ])
             ->groupBy('user_identifier')
@@ -165,8 +174,8 @@ class RecordService
             ],
             'impacted_users' => $impactedUsers,
             'active_users' => $activeUsers,
-            'auth_users_count' => (clone $records)->ofType('request')->whereRaw("JSON_EXTRACT(payload, '$.user') IS NOT NULL")->distinct(DB::raw("JSON_EXTRACT(payload, '$.user')"))->count(),
-            'guest_users_count' => (clone $records)->ofType('request')->whereRaw("JSON_EXTRACT(payload, '$.user') IS NULL")->count(),
+            'auth_users_count' => (clone $records)->ofType('request')->whereRaw("{$user} IS NOT NULL")->distinct(DB::raw($user))->count(),
+            'guest_users_count' => (clone $records)->ofType('request')->whereRaw("{$user} IS NULL")->count(),
             'period' => $period,
             'uptime_status' => [
                 'current' => $project->last_uptime_status ?? 'unknown',
@@ -182,36 +191,39 @@ class RecordService
     public function getUserStats(Project $project, ?string $period = null, ?string $from = null, ?string $to = null): array
     {
         $records = $project->records()->forPeriod($period, $from, $to);
+        $user = $this->jsonValue('user');
+        $statusCode = $this->jsonNumeric('status_code');
+        $userHash = "MD5(COALESCE({$this->jsonText('user')}, 'Anonymous'))";
 
-        $authCount = (clone $records)->ofType('request')->whereRaw("JSON_EXTRACT(payload, '$.user') IS NOT NULL")->distinct(DB::raw("JSON_EXTRACT(payload, '$.user')"))->count();
-        $guestCount = (clone $records)->ofType('request')->whereRaw("JSON_EXTRACT(payload, '$.user') IS NULL")->count();
-        $totalAuthRequests = (clone $records)->ofType('request')->whereRaw("JSON_EXTRACT(payload, '$.user') IS NOT NULL")->count();
+        $authCount = (clone $records)->ofType('request')->whereRaw("{$user} IS NOT NULL")->distinct(DB::raw($user))->count();
+        $guestCount = (clone $records)->ofType('request')->whereRaw("{$user} IS NULL")->count();
+        $totalAuthRequests = (clone $records)->ofType('request')->whereRaw("{$user} IS NOT NULL")->count();
 
         return [
             'users' => $project->records()
-                ->whereRaw("JSON_EXTRACT(payload, '$.user') IS NOT NULL")
+                ->whereRaw("{$user} IS NOT NULL")
                 ->forPeriod($period, $from, $to)
                 ->select([
                     DB::raw("COALESCE(
-                        JSON_UNQUOTE(JSON_EXTRACT(payload, '$.user.name')),
-                        JSON_UNQUOTE(JSON_EXTRACT(payload, '$.user_name')),
-                        JSON_UNQUOTE(JSON_EXTRACT(payload, '$.user')),
+                        {$this->jsonText('user.name')},
+                        {$this->jsonText('user_name')},
+                        {$this->jsonText('user')},
                         'Anonymous'
                     ) as user_name"),
                     DB::raw("COALESCE(
-                        JSON_UNQUOTE(JSON_EXTRACT(payload, '$.user.email')),
-                        JSON_UNQUOTE(JSON_EXTRACT(payload, '$.user_email')),
+                        {$this->jsonText('user.email')},
+                        {$this->jsonText('user_email')},
                         ''
                     ) as user_email"),
                     DB::raw("COALESCE(
-                        JSON_UNQUOTE(JSON_EXTRACT(payload, '$.user.id')),
-                        JSON_UNQUOTE(JSON_EXTRACT(payload, '$.user')),
+                        {$this->jsonText('user.id')},
+                        {$this->jsonText('user')},
                         'Anonymous'
                     ) as user_id"),
-                    DB::raw("MD5(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.user')), 'Anonymous')) as hash"),
+                    DB::raw("{$userHash} as hash"),
                     DB::raw('COUNT(*) as total_requests'),
                     DB::raw('MAX(created_at) as last_seen'),
-                    DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status_code')) >= 400 THEN 1 ELSE 0 END) as error_count"),
+                    DB::raw("SUM(CASE WHEN {$statusCode} >= 400 THEN 1 ELSE 0 END) as error_count"),
                     DB::raw("SUM(CASE WHEN type = 'exception' THEN 1 ELSE 0 END) as exception_count"),
                 ])
                 ->groupBy('user_name', 'user_email', 'user_id', 'hash')
@@ -232,15 +244,18 @@ class RecordService
     public function getJobStats(Project $project, ?string $period = null, ?string $from = null, ?string $to = null): array
     {
         $types = ['job-attempt', 'queued-job'];
+        $status = $this->jsonText('status');
+        $duration = $this->jsonNumeric('duration');
+
         $overview = $project->records()
             ->whereIn('type', $types)
             ->forPeriod($period, $from, $to)
             ->select([
                 DB::raw('COUNT(*) as total'),
-                DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status')) = 'processed' THEN 1 ELSE 0 END) as processed"),
-                DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status')) = 'failed' THEN 1 ELSE 0 END) as failed"),
-                DB::raw("AVG(JSON_EXTRACT(payload, '$.duration')) as avg_duration"),
-                DB::raw("MAX(JSON_EXTRACT(payload, '$.duration')) as max_duration"),
+                DB::raw("SUM(CASE WHEN {$status} = 'processed' THEN 1 ELSE 0 END) as processed"),
+                DB::raw("SUM(CASE WHEN {$status} = 'failed' THEN 1 ELSE 0 END) as failed"),
+                DB::raw("AVG({$duration}) as avg_duration"),
+                DB::raw("MAX({$duration}) as max_duration"),
             ])->first();
 
         return [
@@ -249,20 +264,20 @@ class RecordService
                 ->forPeriod($period, $from, $to)
                 ->select([
                     DB::raw("COALESCE(
-                        JSON_UNQUOTE(JSON_EXTRACT(payload, '$.name')),
-                        JSON_UNQUOTE(JSON_EXTRACT(payload, '$.job')),
-                        JSON_UNQUOTE(JSON_EXTRACT(payload, '$.job_class')),
-                        JSON_UNQUOTE(JSON_EXTRACT(payload, '$.payload.name')),
-                        JSON_UNQUOTE(JSON_EXTRACT(payload, '$.payload.displayName')),
-                        JSON_UNQUOTE(JSON_EXTRACT(payload, '$.data.commandName')),
+                        {$this->jsonText('name')},
+                        {$this->jsonText('job')},
+                        {$this->jsonText('job_class')},
+                        {$this->jsonText('payload.name')},
+                        {$this->jsonText('payload.displayName')},
+                        {$this->jsonText('data.commandName')},
                         'Unknown Job'
                     ) as job_class"),
                     'fingerprint as hash',
                     DB::raw('COUNT(*) as total'),
-                    DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status')) = 'processed' THEN 1 ELSE 0 END) as processed_count"),
-                    DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status')) = 'failed' THEN 1 ELSE 0 END) as failed_count"),
-                    DB::raw("AVG(JSON_EXTRACT(payload, '$.duration')) as avg_duration"),
-                    DB::raw("MAX(JSON_EXTRACT(payload, '$.duration')) as p95_duration"),
+                    DB::raw("SUM(CASE WHEN {$status} = 'processed' THEN 1 ELSE 0 END) as processed_count"),
+                    DB::raw("SUM(CASE WHEN {$status} = 'failed' THEN 1 ELSE 0 END) as failed_count"),
+                    DB::raw("AVG({$duration}) as avg_duration"),
+                    DB::raw("MAX({$duration}) as p95_duration"),
                 ])
                 ->groupBy('job_class', 'fingerprint')
                 ->orderBy('total', 'desc')
@@ -283,6 +298,8 @@ class RecordService
      */
     public function getExceptionStats(Project $project, ?string $period = null, ?string $from = null, ?string $to = null): array
     {
+        $user = $this->jsonValue('user');
+
         $overview = $project->records()
             ->ofType('exception')
             ->forPeriod($period, $from, $to)
@@ -297,10 +314,10 @@ class RecordService
                 ->forPeriod($period, $from, $to)
                 ->select([
                     'fingerprint as hash',
-                    DB::raw("JSON_UNQUOTE(JSON_EXTRACT(payload, '$.class')) as class"),
-                    DB::raw("JSON_UNQUOTE(JSON_EXTRACT(payload, '$.message')) as message"),
+                    DB::raw("{$this->jsonText('class')} as class"),
+                    DB::raw("{$this->jsonText('message')} as message"),
                     DB::raw('COUNT(*) as total_count'),
-                    DB::raw("COUNT(DISTINCT JSON_EXTRACT(payload, '$.user')) as user_count"),
+                    DB::raw("COUNT(DISTINCT {$user}) as user_count"),
                     DB::raw('MAX(created_at) as last_seen'),
                 ])
                 ->groupBy('class', 'message', 'fingerprint')
@@ -319,14 +336,17 @@ class RecordService
      */
     public function getCommandStats(Project $project, ?string $period = null, ?string $from = null, ?string $to = null): array
     {
+        $exitCode = $this->jsonNumeric('exit_code');
+        $duration = $this->jsonNumeric('duration');
+
         $overview = $project->records()
             ->ofType('command')
             ->forPeriod($period, $from, $to)
             ->select([
                 DB::raw('COUNT(*) as total'),
-                DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.exit_code')) = 0 THEN 1 ELSE 0 END) as success"),
-                DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.exit_code')) != 0 THEN 1 ELSE 0 END) as failed"),
-                DB::raw("AVG(JSON_EXTRACT(payload, '$.duration')) as avg_duration"),
+                DB::raw("SUM(CASE WHEN {$exitCode} = 0 THEN 1 ELSE 0 END) as success"),
+                DB::raw("SUM(CASE WHEN {$exitCode} != 0 THEN 1 ELSE 0 END) as failed"),
+                DB::raw("AVG({$duration}) as avg_duration"),
             ])->first();
 
         return [
@@ -335,18 +355,18 @@ class RecordService
                 ->forPeriod($period, $from, $to)
                 ->select([
                     DB::raw("COALESCE(
-                        JSON_UNQUOTE(JSON_EXTRACT(payload, '$.command')),
-                        JSON_UNQUOTE(JSON_EXTRACT(payload, '$.name')),
-                        JSON_UNQUOTE(JSON_EXTRACT(payload, '$.payload.command')),
-                        JSON_UNQUOTE(JSON_EXTRACT(payload, '$.data.command')),
+                        {$this->jsonText('command')},
+                        {$this->jsonText('name')},
+                        {$this->jsonText('payload.command')},
+                        {$this->jsonText('data.command')},
                         'Unknown Command'
                     ) as command_name"),
                     'fingerprint as hash',
                     DB::raw('COUNT(*) as total'),
-                    DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.exit_code')) = 0 THEN 1 ELSE 0 END) as success_count"),
-                    DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.exit_code')) != 0 THEN 1 ELSE 0 END) as failed_count"),
-                    DB::raw("AVG(JSON_EXTRACT(payload, '$.duration')) as avg_duration"),
-                    DB::raw("MAX(JSON_EXTRACT(payload, '$.duration')) as p95_duration"),
+                    DB::raw("SUM(CASE WHEN {$exitCode} = 0 THEN 1 ELSE 0 END) as success_count"),
+                    DB::raw("SUM(CASE WHEN {$exitCode} != 0 THEN 1 ELSE 0 END) as failed_count"),
+                    DB::raw("AVG({$duration}) as avg_duration"),
+                    DB::raw("MAX({$duration}) as p95_duration"),
                 ])
                 ->groupBy('command_name', 'fingerprint')
                 ->paginate(20)->withQueryString(),
@@ -365,14 +385,19 @@ class RecordService
      */
     public function getScheduledTaskStats(Project $project, ?string $period = null, ?string $from = null, ?string $to = null): array
     {
+        $exitCode = $this->jsonNumeric('exit_code');
+        $exitCodeValue = $this->jsonValue('exit_code');
+        $duration = $this->jsonNumeric('duration');
+        $status = $this->jsonText('status');
+
         $overview = $project->records()
             ->ofType('scheduled-task')
             ->forPeriod($period, $from, $to)
             ->select([
                 DB::raw('COUNT(*) as total'),
-                DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.exit_code')) = 0 THEN 1 ELSE 0 END) as success"),
-                DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.exit_code')) != 0 THEN 1 ELSE 0 END) as failed"),
-                DB::raw("AVG(JSON_EXTRACT(payload, '$.duration')) as avg_duration"),
+                DB::raw("SUM(CASE WHEN {$exitCode} = 0 THEN 1 ELSE 0 END) as success"),
+                DB::raw("SUM(CASE WHEN {$exitCode} != 0 THEN 1 ELSE 0 END) as failed"),
+                DB::raw("AVG({$duration}) as avg_duration"),
             ])->first();
 
         return [
@@ -381,23 +406,23 @@ class RecordService
                 ->forPeriod($period, $from, $to)
                 ->select([
                     DB::raw("COALESCE(
-                        JSON_UNQUOTE(JSON_EXTRACT(payload, '$.command')),
-                        JSON_UNQUOTE(JSON_EXTRACT(payload, '$.name')),
-                        JSON_UNQUOTE(JSON_EXTRACT(payload, '$.payload.command')),
+                        {$this->jsonText('command')},
+                        {$this->jsonText('name')},
+                        {$this->jsonText('payload.command')},
                         'Unknown Task'
                     ) as command"),
                     DB::raw("COALESCE(
-                        JSON_UNQUOTE(JSON_EXTRACT(payload, '$.cron')),
-                        JSON_UNQUOTE(JSON_EXTRACT(payload, '$.expression')),
-                        JSON_UNQUOTE(JSON_EXTRACT(payload, '$.schedule'))
+                        {$this->jsonText('cron')},
+                        {$this->jsonText('expression')},
+                        {$this->jsonText('schedule')}
                     ) as schedule"),
                     'fingerprint as hash',
                     DB::raw('COUNT(*) as total'),
-                    DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.exit_code')) = 0 THEN 1 ELSE 0 END) as processed_count"),
-                    DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.exit_code')) != 0 AND JSON_EXTRACT(payload, '$.exit_code') IS NOT NULL THEN 1 ELSE 0 END) as failed_count"),
-                    DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status')) = 'skipped' THEN 1 ELSE 0 END) as skipped_count"),
-                    DB::raw("AVG(JSON_EXTRACT(payload, '$.duration')) as avg_duration"),
-                    DB::raw("MAX(JSON_EXTRACT(payload, '$.duration')) as p95_duration"),
+                    DB::raw("SUM(CASE WHEN {$exitCode} = 0 THEN 1 ELSE 0 END) as processed_count"),
+                    DB::raw("SUM(CASE WHEN {$exitCode} != 0 AND {$exitCodeValue} IS NOT NULL THEN 1 ELSE 0 END) as failed_count"),
+                    DB::raw("SUM(CASE WHEN {$status} = 'skipped' THEN 1 ELSE 0 END) as skipped_count"),
+                    DB::raw("AVG({$duration}) as avg_duration"),
+                    DB::raw("MAX({$duration}) as p95_duration"),
                 ])
                 ->groupBy('command', 'schedule', 'fingerprint')
                 ->orderBy('total', 'desc')
@@ -431,12 +456,14 @@ class RecordService
      */
     public function getQueryStats(Project $project, ?string $period = null, ?string $from = null, ?string $to = null): array
     {
+        $duration = $this->jsonNumeric('duration');
+
         $overview = $project->records()
             ->ofType('query')
             ->forPeriod($period, $from, $to)
             ->select([
                 DB::raw('COUNT(*) as total'),
-                DB::raw("AVG(JSON_EXTRACT(payload, '$.duration')) as avg_duration"),
+                DB::raw("AVG({$duration}) as avg_duration"),
             ])->first();
 
         return [
@@ -445,12 +472,12 @@ class RecordService
                 ->forPeriod($period, $from, $to)
                 ->select([
                     'fingerprint as hash',
-                    DB::raw("JSON_UNQUOTE(JSON_EXTRACT(payload, '$.sql')) as sql_query"),
-                    DB::raw("JSON_UNQUOTE(COALESCE(JSON_EXTRACT(payload, '$.connection'), 'mysql')) as db_connection"),
+                    DB::raw("{$this->jsonText('sql')} as sql_query"),
+                    DB::raw("COALESCE({$this->jsonText('connection')}, 'mysql') as db_connection"),
                     DB::raw('COUNT(*) as total_calls'),
-                    DB::raw("AVG(JSON_EXTRACT(payload, '$.duration')) as avg_duration"),
-                    DB::raw("MAX(JSON_EXTRACT(payload, '$.duration')) as p95_duration"),
-                    DB::raw("SUM(JSON_EXTRACT(payload, '$.duration')) as total_duration"),
+                    DB::raw("AVG({$duration}) as avg_duration"),
+                    DB::raw("MAX({$duration}) as p95_duration"),
+                    DB::raw("SUM({$duration}) as total_duration"),
                 ])
                 ->groupBy('sql_query', 'hash', 'db_connection')
                 ->orderBy('total_calls', 'desc')
@@ -468,14 +495,19 @@ class RecordService
      */
     public function getOutgoingRequestStats(Project $project, ?string $period = null, ?string $from = null, ?string $to = null): array
     {
+        $statusCode = $this->jsonNumeric('status_code');
+        $status = $this->jsonNumeric('status');
+        $resolvedStatus = "COALESCE({$statusCode}, {$status})";
+        $duration = $this->jsonNumeric('duration');
+
         $overview = $project->records()
             ->ofType('outgoing-request')
             ->forPeriod($period, $from, $to)
             ->select([
                 DB::raw('COUNT(*) as total'),
-                DB::raw("SUM(CASE WHEN COALESCE(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status_code')), JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status'))) BETWEEN 100 AND 399 THEN 1 ELSE 0 END) as ok"),
-                DB::raw("SUM(CASE WHEN COALESCE(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status_code')), JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status'))) >= 400 THEN 1 ELSE 0 END) as failed"),
-                DB::raw("AVG(JSON_EXTRACT(payload, '$.duration')) as avg_duration"),
+                DB::raw("SUM(CASE WHEN {$resolvedStatus} BETWEEN 100 AND 399 THEN 1 ELSE 0 END) as ok"),
+                DB::raw("SUM(CASE WHEN {$resolvedStatus} >= 400 THEN 1 ELSE 0 END) as failed"),
+                DB::raw("AVG({$duration}) as avg_duration"),
             ])->first();
 
         return [
@@ -483,14 +515,14 @@ class RecordService
                 ->ofType('outgoing-request')
                 ->forPeriod($period, $from, $to)
                 ->select([
-                    DB::raw("JSON_UNQUOTE(JSON_EXTRACT(payload, '$.host')) as host"),
+                    DB::raw("{$this->jsonText('host')} as host"),
                     'fingerprint as hash',
                     DB::raw('COUNT(*) as total'),
-                    DB::raw("SUM(CASE WHEN COALESCE(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status_code')), JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status'))) BETWEEN 100 AND 399 THEN 1 ELSE 0 END) as ok_count"),
-                    DB::raw("SUM(CASE WHEN COALESCE(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status_code')), JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status'))) BETWEEN 400 AND 499 THEN 1 ELSE 0 END) as client_error_count"),
-                    DB::raw("SUM(CASE WHEN COALESCE(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status_code')), JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status'))) >= 500 THEN 1 ELSE 0 END) as server_error_count"),
-                    DB::raw("AVG(JSON_EXTRACT(payload, '$.duration')) as avg_duration"),
-                    DB::raw("MAX(JSON_EXTRACT(payload, '$.duration')) as p95_duration"),
+                    DB::raw("SUM(CASE WHEN {$resolvedStatus} BETWEEN 100 AND 399 THEN 1 ELSE 0 END) as ok_count"),
+                    DB::raw("SUM(CASE WHEN {$resolvedStatus} BETWEEN 400 AND 499 THEN 1 ELSE 0 END) as client_error_count"),
+                    DB::raw("SUM(CASE WHEN {$resolvedStatus} >= 500 THEN 1 ELSE 0 END) as server_error_count"),
+                    DB::raw("AVG({$duration}) as avg_duration"),
+                    DB::raw("MAX({$duration}) as p95_duration"),
                 ])
                 ->groupBy('host', 'fingerprint')
                 ->orderBy('total', 'desc')
@@ -510,13 +542,15 @@ class RecordService
      */
     public function getCacheStats(Project $project, ?string $period = null, ?string $from = null, ?string $to = null): array
     {
+        $cacheType = $this->jsonText('type');
+
         $overview = $project->records()
             ->ofType('cache-event')
             ->forPeriod($period, $from, $to)
             ->select([
                 DB::raw('COUNT(*) as total'),
-                DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.type')) = 'hit' THEN 1 ELSE 0 END) as hits"),
-                DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.type')) = 'miss' THEN 1 ELSE 0 END) as misses"),
+                DB::raw("SUM(CASE WHEN {$cacheType} = 'hit' THEN 1 ELSE 0 END) as hits"),
+                DB::raw("SUM(CASE WHEN {$cacheType} = 'miss' THEN 1 ELSE 0 END) as misses"),
             ])->first();
 
         return [
@@ -524,13 +558,13 @@ class RecordService
                 ->ofType('cache-event')
                 ->forPeriod($period, $from, $to)
                 ->select([
-                    DB::raw("JSON_UNQUOTE(JSON_EXTRACT(payload, '$.key')) as cache_key"),
+                    DB::raw("{$this->jsonText('key')} as cache_key"),
                     DB::raw('COUNT(*) as total'),
-                    DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.type')) = 'hit' THEN 1 ELSE 0 END) as hits"),
-                    DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.type')) = 'miss' THEN 1 ELSE 0 END) as misses"),
-                    DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.type')) = 'write' THEN 1 ELSE 0 END) as writes"),
-                    DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.type')) = 'delete' THEN 1 ELSE 0 END) as deletes"),
-                    DB::raw("(SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.type')) = 'hit' THEN 1 ELSE 0 END) * 100 / NULLIF(COUNT(*), 0)) as hit_rate"),
+                    DB::raw("SUM(CASE WHEN {$cacheType} = 'hit' THEN 1 ELSE 0 END) as hits"),
+                    DB::raw("SUM(CASE WHEN {$cacheType} = 'miss' THEN 1 ELSE 0 END) as misses"),
+                    DB::raw("SUM(CASE WHEN {$cacheType} = 'write' THEN 1 ELSE 0 END) as writes"),
+                    DB::raw("SUM(CASE WHEN {$cacheType} = 'delete' THEN 1 ELSE 0 END) as deletes"),
+                    DB::raw("(SUM(CASE WHEN {$cacheType} = 'hit' THEN 1 ELSE 0 END) * 100 / NULLIF(COUNT(*), 0)) as hit_rate"),
                 ])
                 ->groupBy('cache_key')
                 ->orderBy('total', 'desc')
@@ -550,12 +584,15 @@ class RecordService
      */
     public function getNotificationStats(Project $project, ?string $period = null, ?string $from = null, ?string $to = null): array
     {
+        $channel = $this->jsonValue('channel');
+        $status = $this->jsonText('status');
+
         $overview = $project->records()
             ->ofType('notification')
             ->forPeriod($period, $from, $to)
             ->select([
                 DB::raw('COUNT(*) as total'),
-                DB::raw("COUNT(DISTINCT JSON_EXTRACT(payload, '$.channel')) as channels_count"),
+                DB::raw("COUNT(DISTINCT {$channel}) as channels_count"),
             ])->first();
 
         return [
@@ -564,11 +601,11 @@ class RecordService
                 ->forPeriod($period, $from, $to)
                 ->select([
                     'fingerprint as hash',
-                    DB::raw("JSON_UNQUOTE(JSON_EXTRACT(payload, '$.class')) as notification_class"),
-                    DB::raw("JSON_UNQUOTE(JSON_EXTRACT(payload, '$.channel')) as channel"),
+                    DB::raw("{$this->jsonText('class')} as notification_class"),
+                    DB::raw("{$this->jsonText('channel')} as channel"),
                     DB::raw('COUNT(*) as total'),
-                    DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status')) != 'failed' THEN 1 ELSE 0 END) as sent_count"),
-                    DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status')) = 'failed' THEN 1 ELSE 0 END) as failed_count"),
+                    DB::raw("SUM(CASE WHEN {$status} != 'failed' THEN 1 ELSE 0 END) as sent_count"),
+                    DB::raw("SUM(CASE WHEN {$status} = 'failed' THEN 1 ELSE 0 END) as failed_count"),
                 ])
                 ->groupBy('hash', 'notification_class', 'channel')
                 ->orderBy('total', 'desc')
@@ -585,6 +622,8 @@ class RecordService
      */
     public function getMailStats(Project $project, ?string $period = null, ?string $from = null, ?string $to = null): array
     {
+        $mailer = $this->jsonText('mailer');
+
         $overview = $project->records()
             ->ofType('mail')
             ->forPeriod($period, $from, $to)
@@ -599,9 +638,9 @@ class RecordService
                 ->forPeriod($period, $from, $to)
                 ->select([
                     'fingerprint as hash',
-                    DB::raw("JSON_UNQUOTE(JSON_EXTRACT(payload, '$.class')) as mailable_class"),
+                    DB::raw("{$this->jsonText('class')} as mailable_class"),
                     DB::raw('COUNT(*) as total'),
-                    DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.mailer')) = 'log' THEN 0 ELSE 1 END) as queued_count"),
+                    DB::raw("SUM(CASE WHEN {$mailer} = 'log' THEN 0 ELSE 1 END) as queued_count"),
                 ])
                 ->groupBy('hash', 'mailable_class')
                 ->orderBy('total', 'desc')
@@ -638,8 +677,10 @@ class RecordService
      */
     public function getUserHistory(Project $project, string $hash, ?string $period = null, ?string $from = null, ?string $to = null): array
     {
+        $userHash = "MD5(COALESCE({$this->jsonText('user')}, 'Anonymous'))";
+
         $records = $project->records()
-            ->whereRaw("MD5(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.user')), 'Anonymous')) = ?", [$hash])
+            ->whereRaw("{$userHash} = ?", [$hash])
             ->forPeriod($period, $from, $to)
             ->latest()
             ->paginate(50)
@@ -664,7 +705,7 @@ class RecordService
             'user_identifier' => $user_name, // legacy support
             'records' => $records,
             'stats' => $project->records()->forPeriod($period, $from, $to)
-                ->whereRaw("MD5(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.user')), 'Anonymous')) = ?", [$hash])
+                ->whereRaw("{$userHash} = ?", [$hash])
                 ->select([
                     DB::raw('COUNT(*) as total'),
                     DB::raw('MIN(created_at) as first_seen'),
@@ -682,7 +723,7 @@ class RecordService
         $groupBy = ['fingerprint'];
 
         foreach ($fields as $alias => $path) {
-            $select[] = DB::raw("JSON_UNQUOTE(JSON_EXTRACT(payload, '$.{$path}')) as {$alias}");
+            $select[] = DB::raw("{$this->jsonText($path)} as {$alias}");
             $groupBy[] = $alias;
         }
 
@@ -746,9 +787,11 @@ class RecordService
     public function getSecurityStats(Project $project, ?string $period = null, ?string $from = null, ?string $to = null): array
     {
         $records = $project->records()->ofType('request')->forPeriod($period, $from, $to);
+        $ip = $this->jsonValue('ip');
+        $status = $this->jsonText('status');
 
         $overview = (clone $records)->select([
-            DB::raw("COUNT(DISTINCT JSON_EXTRACT(payload, '$.ip')) as unique_ips"),
+            DB::raw("COUNT(DISTINCT {$ip}) as unique_ips"),
             DB::raw('COUNT(*) as total_requests'),
         ])->first();
 
@@ -756,14 +799,14 @@ class RecordService
         $failedLogins = $project->records()
             ->ofType('auth-event')
             ->forPeriod($period, $from, $to)
-            ->whereRaw("JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status')) = 'failed'")
+            ->whereRaw("{$status} = 'failed'")
             ->count();
 
         // Recent suspicious auth events
         $recentAuthEvents = $project->records()
             ->ofType('auth-event')
             ->forPeriod($period, $from, $to)
-            ->whereRaw("JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status')) = 'failed'")
+            ->whereRaw("{$status} = 'failed'")
             ->latest()
             ->limit(5)
             ->get()
@@ -808,40 +851,42 @@ class RecordService
             ->ofType($type)
             ->forPeriod($period, $from, $to);
 
-        $dateFormat = match ($period) {
-            '7d', '14d', '30d' => '%m-%d',
-            '24h' => '%H:%i', // Change to minute granularity for 24h as requested "every minute"
-            'custom' => '%Y-%m-%d %H:00',
-            default => '%H:%i',
-        };
+        $timeBucket = $this->timeBucketSql($period);
+        $statusCode = $this->jsonNumeric('status_code');
+        $status = $this->jsonText('status');
+        $exitCode = $this->jsonNumeric('exit_code');
+        $exitCodeValue = $this->jsonValue('exit_code');
+        $cacheType = $this->jsonText('type');
+        $duration = $this->jsonNumeric('duration');
+        $user = $this->jsonValue('user');
 
         $results = $query->select([
-            DB::raw("DATE_FORMAT(created_at, '{$dateFormat}') as minute"),
+            DB::raw("{$timeBucket} as minute"),
             DB::raw('COUNT(*) as total'),
-            DB::raw("SUM(CASE 
-                WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status_code')) BETWEEN 100 AND 399 THEN 1 
-                WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status')) = 'processed' THEN 1
-                WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.exit_code')) = 0 THEN 1
-                WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.type')) = 'hit' THEN 1
-                ELSE 0 
+            DB::raw("SUM(CASE
+                WHEN {$statusCode} BETWEEN 100 AND 399 THEN 1
+                WHEN {$status} = 'processed' THEN 1
+                WHEN {$exitCode} = 0 THEN 1
+                WHEN {$cacheType} = 'hit' THEN 1
+                ELSE 0
             END) as ok"),
-            DB::raw("SUM(CASE 
-                WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status_code')) BETWEEN 400 AND 499 THEN 1 
-                ELSE 0 
+            DB::raw("SUM(CASE
+                WHEN {$statusCode} BETWEEN 400 AND 499 THEN 1
+                ELSE 0
             END) as client_error"),
-            DB::raw("SUM(CASE 
-                WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status_code')) >= 500 THEN 1 
-                WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status')) = 'failed' THEN 1
+            DB::raw("SUM(CASE
+                WHEN {$statusCode} >= 500 THEN 1
+                WHEN {$status} = 'failed' THEN 1
                 WHEN type = 'exception' THEN 1
-                WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.exit_code')) != 0 AND JSON_EXTRACT(payload, '$.exit_code') IS NOT NULL THEN 1
-                WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.type')) = 'miss' THEN 1
-                ELSE 0 
+                WHEN {$exitCode} != 0 AND {$exitCodeValue} IS NOT NULL THEN 1
+                WHEN {$cacheType} = 'miss' THEN 1
+                ELSE 0
             END) as server_error"),
-            DB::raw("AVG(JSON_EXTRACT(payload, '$.duration')) as avg_duration"),
-            DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.type')) = 'hit' THEN 1 ELSE 0 END) as hits"),
-            DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.type')) = 'miss' THEN 1 ELSE 0 END) as misses"),
-            DB::raw("SUM(CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(payload, '$.type')) = 'write' THEN 1 ELSE 0 END) as writes"),
-            DB::raw("COUNT(DISTINCT JSON_EXTRACT(payload, '$.user')) as active_users"),
+            DB::raw("AVG({$duration}) as avg_duration"),
+            DB::raw("SUM(CASE WHEN {$cacheType} = 'hit' THEN 1 ELSE 0 END) as hits"),
+            DB::raw("SUM(CASE WHEN {$cacheType} = 'miss' THEN 1 ELSE 0 END) as misses"),
+            DB::raw("SUM(CASE WHEN {$cacheType} = 'write' THEN 1 ELSE 0 END) as writes"),
+            DB::raw("COUNT(DISTINCT {$user}) as active_users"),
             DB::raw('COUNT(*) as total_requests'),
         ])
             ->groupBy('minute')
@@ -972,5 +1017,70 @@ class RecordService
             'records' => $records,
             'period' => $period,
         ];
+    }
+
+    private function isPgsql(): bool
+    {
+        return DB::connection()->getDriverName() === 'pgsql';
+    }
+
+    private function jsonPathSegments(string $path): array
+    {
+        return explode('.', $path);
+    }
+
+    private function quoteLiteral(string $value): string
+    {
+        return "'".str_replace("'", "''", $value)."'";
+    }
+
+    private function jsonValue(string $path): string
+    {
+        if ($this->isPgsql()) {
+            $segments = array_map([$this, 'quoteLiteral'], $this->jsonPathSegments($path));
+
+            return 'payload #> ARRAY['.implode(', ', $segments).']';
+        }
+
+        return "JSON_EXTRACT(payload, '$.".$path."')";
+    }
+
+    private function jsonText(string $path): string
+    {
+        if ($this->isPgsql()) {
+            $segments = array_map([$this, 'quoteLiteral'], $this->jsonPathSegments($path));
+
+            return 'payload #>> ARRAY['.implode(', ', $segments).']';
+        }
+
+        return "JSON_UNQUOTE(JSON_EXTRACT(payload, '$.".$path."'))";
+    }
+
+    private function jsonNumeric(string $path): string
+    {
+        $text = $this->jsonText($path);
+
+        if ($this->isPgsql()) {
+            return "NULLIF({$text}, '')::numeric";
+        }
+
+        return "CAST(NULLIF({$text}, '') AS DECIMAL(20,6))";
+    }
+
+    private function timeBucketSql(string $period): string
+    {
+        if ($this->isPgsql()) {
+            return match ($period) {
+                '7d', '14d', '30d' => "to_char(created_at, 'MM-DD')",
+                'custom' => "to_char(date_trunc('hour', created_at), 'YYYY-MM-DD HH24:00')",
+                default => "to_char(created_at, 'HH24:MI')",
+            };
+        }
+
+        return match ($period) {
+            '7d', '14d', '30d' => "DATE_FORMAT(created_at, '%m-%d')",
+            'custom' => "DATE_FORMAT(created_at, '%Y-%m-%d %H:00')",
+            default => "DATE_FORMAT(created_at, '%H:%i')",
+        };
     }
 }
