@@ -103,6 +103,7 @@ class RecordService
         $duration = $this->jsonNumeric('duration');
         $status = $this->jsonText('status');
         $user = $this->jsonValue('user');
+        $userDistinct = $this->jsonDistinct('user');
         $userIdentifier = "COALESCE({$this->jsonText('user.name')}, {$this->jsonText('user_name')}, {$this->jsonText('user')}, 'Anonymous')";
 
         $requestStats = (clone $records)->ofType('request')
@@ -174,7 +175,7 @@ class RecordService
             ],
             'impacted_users' => $impactedUsers,
             'active_users' => $activeUsers,
-            'auth_users_count' => (clone $records)->ofType('request')->whereRaw("{$user} IS NOT NULL")->distinct(DB::raw($user))->count(),
+            'auth_users_count' => (clone $records)->ofType('request')->whereRaw("{$user} IS NOT NULL")->distinct(DB::raw($userDistinct))->count(),
             'guest_users_count' => (clone $records)->ofType('request')->whereRaw("{$user} IS NULL")->count(),
             'period' => $period,
             'uptime_status' => [
@@ -192,10 +193,11 @@ class RecordService
     {
         $records = $project->records()->forPeriod($period, $from, $to);
         $user = $this->jsonValue('user');
+        $userDistinct = $this->jsonDistinct('user');
         $statusCode = $this->jsonNumeric('status_code');
         $userHash = "MD5(COALESCE({$this->jsonText('user')}, 'Anonymous'))";
 
-        $authCount = (clone $records)->ofType('request')->whereRaw("{$user} IS NOT NULL")->distinct(DB::raw($user))->count();
+        $authCount = (clone $records)->ofType('request')->whereRaw("{$user} IS NOT NULL")->distinct(DB::raw($userDistinct))->count();
         $guestCount = (clone $records)->ofType('request')->whereRaw("{$user} IS NULL")->count();
         $totalAuthRequests = (clone $records)->ofType('request')->whereRaw("{$user} IS NOT NULL")->count();
 
@@ -299,6 +301,7 @@ class RecordService
     public function getExceptionStats(Project $project, ?string $period = null, ?string $from = null, ?string $to = null): array
     {
         $user = $this->jsonValue('user');
+        $userDistinct = $this->jsonDistinct('user');
 
         $overview = $project->records()
             ->ofType('exception')
@@ -317,7 +320,7 @@ class RecordService
                     DB::raw("{$this->jsonText('class')} as class"),
                     DB::raw("{$this->jsonText('message')} as message"),
                     DB::raw('COUNT(*) as total_count'),
-                    DB::raw("COUNT(DISTINCT {$user}) as user_count"),
+                    DB::raw("COUNT(DISTINCT {$userDistinct}) as user_count"),
                     DB::raw('MAX(created_at) as last_seen'),
                 ])
                 ->groupBy('class', 'message', 'fingerprint')
@@ -584,7 +587,7 @@ class RecordService
      */
     public function getNotificationStats(Project $project, ?string $period = null, ?string $from = null, ?string $to = null): array
     {
-        $channel = $this->jsonValue('channel');
+        $channel = $this->jsonDistinct('channel');
         $status = $this->jsonText('status');
 
         $overview = $project->records()
@@ -787,7 +790,7 @@ class RecordService
     public function getSecurityStats(Project $project, ?string $period = null, ?string $from = null, ?string $to = null): array
     {
         $records = $project->records()->ofType('request')->forPeriod($period, $from, $to);
-        $ip = $this->jsonValue('ip');
+        $ip = $this->jsonDistinct('ip');
         $status = $this->jsonText('status');
 
         $overview = (clone $records)->select([
@@ -858,7 +861,7 @@ class RecordService
         $exitCodeValue = $this->jsonValue('exit_code');
         $cacheType = $this->jsonText('type');
         $duration = $this->jsonNumeric('duration');
-        $user = $this->jsonValue('user');
+        $user = $this->jsonDistinct('user');
 
         $results = $query->select([
             DB::raw("{$timeBucket} as minute"),
@@ -1065,6 +1068,15 @@ class RecordService
         }
 
         return "CAST(NULLIF({$text}, '') AS DECIMAL(20,6))";
+    }
+
+    private function jsonDistinct(string $path): string
+    {
+        if ($this->isPgsql()) {
+            return '('.$this->jsonValue($path).')::text';
+        }
+
+        return 'CAST('.$this->jsonValue($path).' AS CHAR)';
     }
 
     private function timeBucketSql(string $period): string
