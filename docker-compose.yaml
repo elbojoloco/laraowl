@@ -7,8 +7,6 @@ services:
       dockerfile: docker/Dockerfile
     image: laraowl:${APP_VERSION:-latest}
     restart: unless-stopped
-    ports:
-      - 9000:9000
     depends_on:
       db:
         condition: service_healthy
@@ -63,7 +61,7 @@ services:
   reverb:
     image: laraowl:${APP_VERSION:-latest}
     restart: unless-stopped
-    command: php artisan reverb:start --debug
+    command: php artisan reverb:start
     environment:
       IS_WORKER: "true"
     env_file:
@@ -75,8 +73,6 @@ services:
         condition: service_healthy
       horizon:
         condition: service_started
-    ports:
-      - 8080:8080
     networks:
       - laraowl-network
 
