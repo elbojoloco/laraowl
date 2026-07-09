@@ -134,11 +134,16 @@ services:
         set -e
         echo "Preparing storage link and waiting for database..."
         php artisan storage:link || true
-        until php artisan migrate:status 2>&1 | grep -q -E "(Migration table not found|Migration name)"; do
+        attempt=1
+        until php artisan migrate --force; do
+          if [ "$$attempt" -ge 30 ]; then
+            echo "Migration failed after $${attempt} attempts."
+            exit 1
+          fi
+          attempt=$$((attempt + 1))
           sleep 2
           echo "."
         done
-        php artisan migrate --force
         php artisan optimize:clear
         php artisan optimize
     environment:
@@ -296,7 +301,7 @@ services:
         }
         EOF
 
-        caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
+        exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
     networks:
       - laraowl-network
     volumes:
@@ -343,7 +348,7 @@ services:
     restart: unless-stopped
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-${SERVICE_PASSWORD_64_REDIS}}
-    command: sh -c 'redis-server --appendonly yes --requirepass "$${REDIS_PASSWORD}"'
+    command: sh -c 'exec redis-server --appendonly yes --requirepass "$${REDIS_PASSWORD}"'
     volumes:
       - redis-data:/data
     healthcheck:
