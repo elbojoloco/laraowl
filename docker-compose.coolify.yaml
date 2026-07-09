@@ -24,8 +24,8 @@ x-laraowl-env: &laraowl-env
   DB_CONNECTION: pgsql
   DB_HOST: db
   DB_PORT: "5432"
-  DB_DATABASE: ${DB_DATABASE:-laraowl}
-  DB_USERNAME: ${DB_USERNAME:-laraowl}
+  DB_DATABASE: laraowl
+  DB_USERNAME: laraowl
   DB_PASSWORD: ${SERVICE_PASSWORD_64_DB}
 
   SESSION_DRIVER: database
@@ -100,8 +100,8 @@ services:
         APP_URL: ${APP_URL}
         APP_HOSTNAME: ${APP_HOSTNAME}
         APP_KEY: ${APP_KEY}
-        DB_DATABASE: ${DB_DATABASE:-laraowl}
-        DB_USERNAME: ${DB_USERNAME:-laraowl}
+        DB_DATABASE: laraowl
+        DB_USERNAME: laraowl
         DB_PASSWORD: ${SERVICE_PASSWORD_64_DB}
         REDIS_PASSWORD: ${SERVICE_PASSWORD_64_REDIS}
         REVERB_APP_ID: ${REVERB_APP_ID:-000000}
@@ -294,11 +294,11 @@ services:
     image: postgres:17-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${DB_DATABASE:-laraowl}
-      POSTGRES_USER: ${DB_USERNAME:-laraowl}
+      POSTGRES_DB: laraowl
+      POSTGRES_USER: laraowl
       POSTGRES_PASSWORD: ${SERVICE_PASSWORD_64_DB}
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - postgres-data-v2:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 10s
@@ -326,7 +326,7 @@ services:
       - laraowl-network
 
 volumes:
-  postgres-data:
+  postgres-data-v2:
   redis-data:
   storage:
   public:
