@@ -109,6 +109,8 @@ services:
         REVERB_APP_SECRET: ${REVERB_APP_SECRET:-${SERVICE_PASSWORD_64_REVERBSECRET}}
     image: laraowl-coolify:${APP_VERSION:-latest}
     restart: unless-stopped
+    entrypoint: ["/usr/local/bin/docker-php-entrypoint"]
+    command: ["php-fpm"]
     environment:
       <<: *laraowl-env
     depends_on:
@@ -118,6 +120,39 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks:
+      - laraowl-network
+    volumes: *laraowl-volume-mounts
+
+  migrate:
+    image: laraowl-coolify:${APP_VERSION:-latest}
+    restart: "no"
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        echo "Preparing storage link and waiting for database..."
+        php artisan storage:link || true
+        until php artisan migrate:status 2>&1 | grep -q -E "(Migration table not found|Migration name)"; do
+          sleep 2
+          echo "."
+        done
+        php artisan migrate --force
+        php artisan optimize:clear
+        php artisan optimize
+    environment:
+      <<: *laraowl-env
+      IS_WORKER: "true"
+    depends_on:
+      init-volumes:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      app:
+        condition: service_started
     networks:
       - laraowl-network
     volumes: *laraowl-volume-mounts
@@ -161,8 +196,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      app:
-        condition: service_started
+      migrate:
+        condition: service_completed_successfully
     networks:
       - laraowl-network
     volumes: *laraowl-volume-mounts
@@ -181,8 +216,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      app:
-        condition: service_started
+      migrate:
+        condition: service_completed_successfully
     networks:
       - laraowl-network
     volumes: *laraowl-volume-mounts
@@ -201,8 +236,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      app:
-        condition: service_started
+      migrate:
+        condition: service_completed_successfully
     networks:
       - laraowl-network
 
@@ -214,6 +249,8 @@ services:
         condition: service_completed_successfully
       app:
         condition: service_started
+      migrate:
+        condition: service_completed_successfully
       reverb:
         condition: service_started
     expose:
