@@ -109,7 +109,6 @@ services:
         REVERB_APP_SECRET: ${REVERB_APP_SECRET:-${SERVICE_PASSWORD_64_REVERBSECRET}}
     image: laraowl-coolify:${APP_VERSION:-latest}
     restart: unless-stopped
-    entrypoint: ["/usr/local/bin/docker-php-entrypoint"]
     command: ["php-fpm"]
     environment:
       <<: *laraowl-env
@@ -123,44 +122,12 @@ services:
     networks:
       - laraowl-network
     volumes: *laraowl-volume-mounts
-
-  migrate:
-    image: laraowl-coolify:${APP_VERSION:-latest}
-    restart: "no"
-    entrypoint:
-      - /bin/sh
-      - -c
-      - |
-        set -e
-        echo "Preparing storage link and waiting for database..."
-        php artisan storage:link || true
-        attempt=1
-        until php artisan migrate --force; do
-          if [ "$$attempt" -ge 30 ]; then
-            echo "Migration failed after $${attempt} attempts."
-            exit 1
-          fi
-          attempt=$$((attempt + 1))
-          sleep 2
-          echo "."
-        done
-        php artisan optimize:clear
-        php artisan optimize
-    environment:
-      <<: *laraowl-env
-      IS_WORKER: "true"
-    depends_on:
-      init-volumes:
-        condition: service_completed_successfully
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      app:
-        condition: service_started
-    networks:
-      - laraowl-network
-    volumes: *laraowl-volume-mounts
+    healthcheck:
+      test: ["CMD-SHELL", "php -r '$$s=@fsockopen(\"127.0.0.1\", 9000); exit($$s ? 0 : 1);'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
 
   init-volumes:
     image: laraowl-coolify:${APP_VERSION:-latest}
@@ -201,8 +168,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
+      app:
+        condition: service_healthy
     networks:
       - laraowl-network
     volumes: *laraowl-volume-mounts
@@ -221,8 +188,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
+      app:
+        condition: service_healthy
     networks:
       - laraowl-network
     volumes: *laraowl-volume-mounts
@@ -241,8 +208,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
+      app:
+        condition: service_healthy
     networks:
       - laraowl-network
 
@@ -253,9 +220,7 @@ services:
       init-volumes:
         condition: service_completed_successfully
       app:
-        condition: service_started
-      migrate:
-        condition: service_completed_successfully
+        condition: service_healthy
       reverb:
         condition: service_started
     expose:

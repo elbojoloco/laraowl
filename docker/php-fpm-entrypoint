@@ -7,7 +7,6 @@ main() {
         exec su-exec www-data "$@"
     else
         prepare_storage
-        wait_for_db
         run_migrations
         optimize_app
         run_server "$@"
@@ -24,16 +23,20 @@ prepare_storage() {
 }
 
 
-wait_for_db() {
-    echo "Waiting for DB to be ready"
-    until ./artisan migrate:status 2>&1 | grep -q -E "(Migration table not found|Migration name)"; do
-        sleep 1
+run_migrations() {
+    echo "Running database migrations..."
+    attempt=1
+
+    until ./artisan migrate --force; do
+        if [ "$attempt" -ge 30 ]; then
+            echo "Migration failed after ${attempt} attempts."
+            exit 1
+        fi
+
+        attempt=$((attempt + 1))
+        sleep 2
         echo "."
     done
-}
-
-run_migrations() {
-    ./artisan migrate --force
 }
 
 optimize_app() {
