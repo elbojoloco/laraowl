@@ -27,7 +27,7 @@ RUN apk --no-cache add \
 
 RUN docker-php-ext-configure pcntl --enable-pcntl \
     && docker-php-ext-install pdo pgsql pdo_pgsql gd bcmath zip exif pcntl \
-    && pecl install redis \
+    && pecl install https://pecl.php.net/get/redis-6.3.0.tgz \
     && docker-php-ext-enable redis
 
 WORKDIR /usr/share/caddy/html
