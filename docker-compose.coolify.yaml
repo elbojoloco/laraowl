@@ -1,0 +1,331 @@
+name: laraowl
+
+x-laraowl-env: &laraowl-env
+  APP_NAME: LaraOwl
+  APP_ENV: production
+  APP_DEBUG: "false"
+  APP_URL: "${APP_URL:?Set this to https://laraowl.example.com}"
+  APP_HOSTNAME: "${APP_HOSTNAME:?Set this to laraowl.example.com}"
+  APP_KEY: "${APP_KEY:?Generate with: echo base64:openssl-rand-base64-32}"
+
+  ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-false}
+  APP_LOCALE: en
+  APP_FALLBACK_LOCALE: en
+  APP_FAKER_LOCALE: en_US
+  APP_MAINTENANCE_DRIVER: file
+  BCRYPT_ROUNDS: "12"
+  TRUSTED_PROXIES: "*"
+
+  LOG_CHANNEL: stack
+  LOG_STACK: single
+  LOG_DEPRECATIONS_CHANNEL: "null"
+  LOG_LEVEL: ${LOG_LEVEL:-debug}
+
+  DB_CONNECTION: pgsql
+  DB_HOST: db
+  DB_PORT: "5432"
+  DB_DATABASE: ${DB_DATABASE:-laraowl}
+  DB_USERNAME: ${DB_USERNAME:-laraowl}
+  DB_PASSWORD: ${DB_PASSWORD:-${SERVICE_PASSWORD_64_DB}}
+
+  SESSION_DRIVER: database
+  SESSION_LIFETIME: "120"
+  SESSION_ENCRYPT: "false"
+  SESSION_PATH: /
+  SESSION_DOMAIN: "null"
+
+  BROADCAST_DRIVER: reverb
+  BROADCAST_CONNECTION: reverb
+
+  FILESYSTEM_DISK: local
+  QUEUE_CONNECTION: redis
+  CACHE_STORE: redis
+
+  REVERB_APP_ID: ${REVERB_APP_ID:-000000}
+  REVERB_APP_KEY: ${REVERB_APP_KEY:-${SERVICE_PASSWORD_64_REVERBKEY}}
+  REVERB_APP_SECRET: ${REVERB_APP_SECRET:-${SERVICE_PASSWORD_64_REVERBSECRET}}
+  REVERB_HOST: reverb
+  REVERB_PORT: "8080"
+  REVERB_SCHEME: http
+  REVERB_SERVER_HOST: 0.0.0.0
+  REVERB_SERVER_PORT: "8080"
+
+  REDIS_CLIENT: phpredis
+  REDIS_HOST: redis
+  REDIS_PASSWORD: ${REDIS_PASSWORD:-${SERVICE_PASSWORD_64_REDIS}}
+  REDIS_PORT: "6379"
+
+  MAIL_MAILER: log
+  MAIL_SCHEME: "null"
+  MAIL_HOST: 127.0.0.1
+  MAIL_PORT: "2525"
+  MAIL_USERNAME: "null"
+  MAIL_PASSWORD: "null"
+  MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:-hello@example.com}
+  MAIL_FROM_NAME: LaraOwl
+
+  AWS_ACCESS_KEY_ID: ""
+  AWS_SECRET_ACCESS_KEY: ""
+  AWS_DEFAULT_REGION: us-east-1
+  AWS_BUCKET: ""
+  AWS_USE_PATH_STYLE_ENDPOINT: "false"
+
+  VITE_APP_NAME: LaraOwl
+  VITE_REVERB_APP_KEY: ${REVERB_APP_KEY:-${SERVICE_PASSWORD_64_REVERBKEY}}
+  VITE_REVERB_HOST: ${APP_HOSTNAME}
+  VITE_REVERB_PORT: "443"
+  VITE_REVERB_SCHEME: https
+
+x-laraowl-volume-mounts: &laraowl-volume-mounts
+  - type: volume
+    source: storage
+    target: /usr/share/caddy/html/storage
+    volume:
+      nocopy: true
+  - type: volume
+    source: public
+    target: /usr/share/caddy/html/public
+    volume:
+      nocopy: true
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.coolify
+      args:
+        APP_NAME: LaraOwl
+        APP_ENV: production
+        APP_DEBUG: "false"
+        APP_URL: ${APP_URL}
+        APP_HOSTNAME: ${APP_HOSTNAME}
+        APP_KEY: ${APP_KEY}
+        DB_DATABASE: ${DB_DATABASE:-laraowl}
+        DB_USERNAME: ${DB_USERNAME:-laraowl}
+        DB_PASSWORD: ${DB_PASSWORD:-${SERVICE_PASSWORD_64_DB}}
+        REDIS_PASSWORD: ${REDIS_PASSWORD:-${SERVICE_PASSWORD_64_REDIS}}
+        REVERB_APP_ID: ${REVERB_APP_ID:-000000}
+        REVERB_APP_KEY: ${REVERB_APP_KEY:-${SERVICE_PASSWORD_64_REVERBKEY}}
+        REVERB_APP_SECRET: ${REVERB_APP_SECRET:-${SERVICE_PASSWORD_64_REVERBSECRET}}
+    image: laraowl-coolify:${APP_VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      <<: *laraowl-env
+    depends_on:
+      init-volumes:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - laraowl-network
+    volumes: *laraowl-volume-mounts
+
+  init-volumes:
+    image: laraowl-coolify:${APP_VERSION:-latest}
+    restart: "no"
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        mkdir -p \
+          /volumes/storage/app/public \
+          /volumes/storage/framework/cache \
+          /volumes/storage/framework/sessions \
+          /volumes/storage/framework/testing \
+          /volumes/storage/framework/views \
+          /volumes/storage/logs \
+          /volumes/public
+        cp -a /usr/share/caddy/html/storage/. /volumes/storage/
+        cp -a /usr/share/caddy/html/public/. /volumes/public/
+        chown -R www-data:www-data /volumes/storage /volumes/public
+    networks:
+      - laraowl-network
+    volumes:
+      - storage:/volumes/storage
+      - public:/volumes/public
+
+  horizon:
+    image: laraowl-coolify:${APP_VERSION:-latest}
+    restart: unless-stopped
+    command: php artisan horizon
+    environment:
+      <<: *laraowl-env
+      IS_WORKER: "true"
+    depends_on:
+      init-volumes:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      app:
+        condition: service_started
+    networks:
+      - laraowl-network
+    volumes: *laraowl-volume-mounts
+
+  schedule-worker:
+    image: laraowl-coolify:${APP_VERSION:-latest}
+    restart: unless-stopped
+    command: php artisan schedule:work
+    environment:
+      <<: *laraowl-env
+      IS_WORKER: "true"
+    depends_on:
+      init-volumes:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      app:
+        condition: service_started
+    networks:
+      - laraowl-network
+    volumes: *laraowl-volume-mounts
+
+  reverb:
+    image: laraowl-coolify:${APP_VERSION:-latest}
+    restart: unless-stopped
+    command: php artisan reverb:start
+    environment:
+      <<: *laraowl-env
+      IS_WORKER: "true"
+    depends_on:
+      init-volumes:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      app:
+        condition: service_started
+    networks:
+      - laraowl-network
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      init-volumes:
+        condition: service_completed_successfully
+      app:
+        condition: service_started
+      reverb:
+        condition: service_started
+    expose:
+      - "80"
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        cat > /etc/caddy/Caddyfile <<'EOF'
+        :80 {
+            root * /usr/share/caddy/html/public
+            encode zstd gzip
+
+            header {
+                X-Xss-Protection "1; mode=block"
+                X-Content-Type-Options "nosniff"
+                X-Frame-Options "SAMEORIGIN"
+                Content-Security-Policy "upgrade-insecure-requests"
+                -Server
+            }
+
+            request_body {
+                max_size 100mb
+            }
+
+            handle_path /storage/* {
+                root * /usr/share/caddy/html/storage/app/public
+                file_server
+                header Cache-Control "public, max-age=31536000"
+            }
+
+            handle /app* {
+                reverse_proxy reverb:8080
+            }
+
+            php_fastcgi app:9000
+            file_server
+
+            log {
+                output stdout
+                format console
+            }
+        }
+        EOF
+
+        caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
+    networks:
+      - laraowl-network
+    volumes:
+      - type: volume
+        source: storage
+        target: /usr/share/caddy/html/storage
+        volume:
+          nocopy: true
+      - type: volume
+        source: public
+        target: /usr/share/caddy/html/public
+        read_only: true
+        volume:
+          nocopy: true
+      - caddy_data:/data
+      - caddy_config:/config
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-laraowl}
+      POSTGRES_USER: ${DB_USERNAME:-laraowl}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-${SERVICE_PASSWORD_64_DB}}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    networks:
+      - laraowl-network
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-${SERVICE_PASSWORD_64_REDIS}}
+    command: sh -c 'redis-server --appendonly yes --requirepass "$${REDIS_PASSWORD}"'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    networks:
+      - laraowl-network
+
+volumes:
+  db-data:
+  redis-data:
+  storage:
+  public:
+  caddy_data:
+  caddy_config:
+
+networks:
+  laraowl-network:
+    driver: bridge
