@@ -26,7 +26,7 @@ x-laraowl-env: &laraowl-env
   DB_PORT: "5432"
   DB_DATABASE: ${DB_DATABASE:-laraowl}
   DB_USERNAME: ${DB_USERNAME:-laraowl}
-  DB_PASSWORD: ${SERVICE_PASSWORD_64_DB}
+  DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in Coolify}
 
   SESSION_DRIVER: database
   SESSION_LIFETIME: "120"
@@ -42,8 +42,8 @@ x-laraowl-env: &laraowl-env
   CACHE_STORE: redis
 
   REVERB_APP_ID: ${REVERB_APP_ID:-000000}
-  REVERB_APP_KEY: ${SERVICE_PASSWORD_64_REVERBKEY}
-  REVERB_APP_SECRET: ${SERVICE_PASSWORD_64_REVERBSECRET}
+  REVERB_APP_KEY: ${REVERB_APP_KEY:?Set REVERB_APP_KEY in Coolify}
+  REVERB_APP_SECRET: ${REVERB_APP_SECRET:?Set REVERB_APP_SECRET in Coolify}
   REVERB_HOST: reverb
   REVERB_PORT: "8080"
   REVERB_SCHEME: http
@@ -52,7 +52,7 @@ x-laraowl-env: &laraowl-env
 
   REDIS_CLIENT: phpredis
   REDIS_HOST: redis
-  REDIS_PASSWORD: ${SERVICE_PASSWORD_64_REDIS}
+  REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in Coolify}
   REDIS_PORT: "6379"
 
   MAIL_MAILER: log
@@ -71,7 +71,7 @@ x-laraowl-env: &laraowl-env
   AWS_USE_PATH_STYLE_ENDPOINT: "false"
 
   VITE_APP_NAME: LaraOwl
-  VITE_REVERB_APP_KEY: ${SERVICE_PASSWORD_64_REVERBKEY}
+  VITE_REVERB_APP_KEY: ${REVERB_APP_KEY:?Set REVERB_APP_KEY in Coolify}
   VITE_REVERB_HOST: ${APP_HOSTNAME}
   VITE_REVERB_PORT: "443"
   VITE_REVERB_SCHEME: https
@@ -102,11 +102,11 @@ services:
         APP_KEY: ${APP_KEY}
         DB_DATABASE: ${DB_DATABASE:-laraowl}
         DB_USERNAME: ${DB_USERNAME:-laraowl}
-        DB_PASSWORD: ${SERVICE_PASSWORD_64_DB}
-        REDIS_PASSWORD: ${SERVICE_PASSWORD_64_REDIS}
+        DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in Coolify}
+        REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in Coolify}
         REVERB_APP_ID: ${REVERB_APP_ID:-000000}
-        REVERB_APP_KEY: ${SERVICE_PASSWORD_64_REVERBKEY}
-        REVERB_APP_SECRET: ${SERVICE_PASSWORD_64_REVERBSECRET}
+        REVERB_APP_KEY: ${REVERB_APP_KEY:?Set REVERB_APP_KEY in Coolify}
+        REVERB_APP_SECRET: ${REVERB_APP_SECRET:?Set REVERB_APP_SECRET in Coolify}
     image: laraowl-coolify:${APP_VERSION:-latest}
     restart: unless-stopped
     command: ["php-fpm"]
@@ -296,9 +296,9 @@ services:
     environment:
       POSTGRES_DB: ${DB_DATABASE:-laraowl}
       POSTGRES_USER: ${DB_USERNAME:-laraowl}
-      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_64_DB}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in Coolify}
     volumes:
-      - db-data:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 10s
@@ -312,7 +312,7 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     environment:
-      REDIS_PASSWORD: ${SERVICE_PASSWORD_64_REDIS}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in Coolify}
     command: sh -c 'exec redis-server --appendonly yes --requirepass "$${REDIS_PASSWORD}"'
     volumes:
       - redis-data:/data
@@ -326,7 +326,7 @@ services:
       - laraowl-network
 
 volumes:
-  db-data:
+  postgres-data:
   redis-data:
   storage:
   public:
