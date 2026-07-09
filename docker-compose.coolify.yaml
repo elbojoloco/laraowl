@@ -4,8 +4,8 @@ x-laraowl-env: &laraowl-env
   APP_NAME: LaraOwl
   APP_ENV: production
   APP_DEBUG: "false"
-  APP_URL: "${APP_URL:?Set this to https://laraowl.example.com}"
-  APP_HOSTNAME: "${APP_HOSTNAME:?Set this to laraowl.example.com}"
+  APP_URL: "${SERVICE_URL_CADDY:?Set the caddy domain in Coolify}"
+  APP_HOSTNAME: "${SERVICE_FQDN_CADDY:?Set the caddy domain in Coolify}"
   APP_KEY: "${APP_KEY:?Generate with: echo base64:openssl-rand-base64-32}"
 
   ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-false}
@@ -19,7 +19,7 @@ x-laraowl-env: &laraowl-env
   LOG_CHANNEL: stack
   LOG_STACK: single
   LOG_DEPRECATIONS_CHANNEL: "null"
-  LOG_LEVEL: ${LOG_LEVEL:-debug}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
 
   DB_CONNECTION: pgsql
   DB_HOST: db
@@ -72,7 +72,7 @@ x-laraowl-env: &laraowl-env
 
   VITE_APP_NAME: LaraOwl
   VITE_REVERB_APP_KEY: ${SERVICE_PASSWORD_64_REVERBKEY}
-  VITE_REVERB_HOST: ${APP_HOSTNAME}
+  VITE_REVERB_HOST: ${SERVICE_FQDN_CADDY:?Set the caddy domain in Coolify}
   VITE_REVERB_PORT: "443"
   VITE_REVERB_SCHEME: https
 
@@ -94,19 +94,11 @@ services:
       context: .
       dockerfile: docker/Dockerfile.coolify
       args:
-        APP_NAME: LaraOwl
-        APP_ENV: production
-        APP_DEBUG: "false"
-        APP_URL: ${APP_URL}
-        APP_HOSTNAME: ${APP_HOSTNAME}
-        APP_KEY: ${APP_KEY}
-        DB_DATABASE: laraowl
-        DB_USERNAME: laraowl
-        DB_PASSWORD: ${SERVICE_PASSWORD_64_DB}
-        REDIS_PASSWORD: ${SERVICE_PASSWORD_64_REDIS}
-        REVERB_APP_ID: ${REVERB_APP_ID:-000000}
-        REVERB_APP_KEY: ${SERVICE_PASSWORD_64_REVERBKEY}
-        REVERB_APP_SECRET: ${SERVICE_PASSWORD_64_REVERBSECRET}
+        VITE_APP_NAME: LaraOwl
+        VITE_REVERB_APP_IDENTIFIER: ${SERVICE_PASSWORD_64_REVERBKEY}
+        VITE_REVERB_HOST: ${SERVICE_FQDN_CADDY}
+        VITE_REVERB_PORT: "443"
+        VITE_REVERB_SCHEME: https
     image: laraowl-coolify:${APP_VERSION:-latest}
     restart: unless-stopped
     command: ["php-fpm"]
@@ -132,6 +124,7 @@ services:
   init-volumes:
     image: laraowl-coolify:${APP_VERSION:-latest}
     restart: "no"
+    exclude_from_hc: true
     entrypoint:
       - /bin/sh
       - -c
@@ -173,6 +166,12 @@ services:
     networks:
       - laraowl-network
     volumes: *laraowl-volume-mounts
+    healthcheck:
+      test: ["CMD-SHELL", "ps | grep -q '[p]hp artisan horizon'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
 
   schedule-worker:
     image: laraowl-coolify:${APP_VERSION:-latest}
@@ -193,6 +192,12 @@ services:
     networks:
       - laraowl-network
     volumes: *laraowl-volume-mounts
+    healthcheck:
+      test: ["CMD-SHELL", "ps | grep -q '[p]hp artisan schedule:work'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
 
   reverb:
     image: laraowl-coolify:${APP_VERSION:-latest}
@@ -212,6 +217,12 @@ services:
         condition: service_healthy
     networks:
       - laraowl-network
+    healthcheck:
+      test: ["CMD-SHELL", "php -r '$$s=@fsockopen(\"127.0.0.1\", (int) getenv(\"REVERB_SERVER_PORT\") ?: 8080); exit($$s ? 0 : 1);'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
 
   caddy:
     image: caddy:2-alpine
@@ -222,7 +233,7 @@ services:
       app:
         condition: service_healthy
       reverb:
-        condition: service_started
+        condition: service_healthy
     expose:
       - "80"
     entrypoint:
