@@ -149,8 +149,9 @@ services:
 
   horizon:
     image: laraowl-coolify:${APP_VERSION:-latest}
+    init: true
     restart: unless-stopped
-    command: php artisan horizon
+    command: ["php", "artisan", "horizon"]
     environment:
       <<: *laraowl-env
       IS_WORKER: "true"
@@ -175,8 +176,9 @@ services:
 
   schedule-worker:
     image: laraowl-coolify:${APP_VERSION:-latest}
+    init: true
     restart: unless-stopped
-    command: php artisan schedule:work
+    command: ["php", "artisan", "schedule:work"]
     environment:
       <<: *laraowl-env
       IS_WORKER: "true"
@@ -201,8 +203,9 @@ services:
 
   reverb:
     image: laraowl-coolify:${APP_VERSION:-latest}
+    init: true
     restart: unless-stopped
-    command: php artisan reverb:start
+    command: ["php", "artisan", "reverb:start"]
     environment:
       <<: *laraowl-env
       IS_WORKER: "true"
